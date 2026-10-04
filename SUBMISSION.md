@@ -52,12 +52,13 @@ Open http://localhost:8000, upload a canteen photo (or type a one-line
 description), hit 估算. No Ollama running? The app falls back to
 clearly-labeled demo data so the whole flow is still clickable.
 
-[SCREENSHOT: upload a canteen photo]
-[SCREENSHOT: estimation result table + daily total]
+![Upload a canteen photo](https://raw.githubusercontent.com/dashitongzhi/canteen-calorie-estimator/main/screenshots/home.png)
+
+![Estimation result table + daily total](https://raw.githubusercontent.com/dashitongzhi/canteen-calorie-estimator/main/screenshots/result.png)
 
 ## Code
 
-[GITHUB LINK] — MIT licensed. If your canteen is different from ours, fork
+https://github.com/dashitongzhi/canteen-calorie-estimator — MIT licensed. If your canteen is different from ours, fork
 it and teach it your menu.
 
 ## How I Built It
