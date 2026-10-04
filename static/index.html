@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>食堂热量估算器</title>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 640px; margin: 0 auto; padding: 16px; background: #fafafa; color: #222; }
+  h1 { font-size: 1.4rem; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin: 12px 0;
+          box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  button { background: #1677ff; color: #fff; border: none; border-radius: 8px;
+           padding: 10px 20px; font-size: 1rem; cursor: pointer; }
+  button:disabled { background: #aaa; }
+  input[type=file], input[type=text], input[type=number] {
+    width: 100%; box-sizing: border-box; margin: 6px 0; padding: 8px; font-size: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: .95rem; }
+  th, td { border-bottom: 1px solid #eee; padding: 6px 4px; text-align: left; }
+  .demo-badge { background: #fff7e6; color: #ad6800; border: 1px solid #ffd591;
+    border-radius: 6px; padding: 4px 10px; font-size: .85rem; display: inline-block; }
+  .ok-badge { background: #f6ffed; color: #237804; border: 1px solid #b7eb8f;
+    border-radius: 6px; padding: 4px 10px; font-size: .85rem; display: inline-block; }
+  .muted { color: #888; font-size: .85rem; }
+  #preview { max-width: 100%; border-radius: 8px; margin-top: 8px; display: none; }
+</style>
+</head>
+<body>
+<h1>🍱 食堂热量估算器</h1>
+<p class="muted">拍一张食堂的饭菜，或一句话描述，本地 AI 估算热量和三大营养素。数据不出设备。</p>
+<div class="card">
+  <div id="status"><span class="muted">正在检查本地模型…</span></div>
+  <p><button onclick="checkHealth()" style="padding:6px 14px;font-size:.9rem">重新检查</button></p>
+</div>
+<div class="card">
+  <input type="file" id="photo" accept="image/*" capture="environment">
+  <img id="preview" alt="">
+  <input type="text" id="desc" placeholder="或文字描述，如：一碗米饭＋青椒炒肉＋清炒时蔬">
+  <p><button id="go" onclick="estimate()">估算这顿</button></p>
+</div>
+<div class="card" id="resultCard" style="display:none">
+  <h3>估算结果 <span id="modeBadge"></span></h3>
+  <table id="dishTable"><tr><th>菜品</th><th>份量</th><th>热量</th><th>蛋白/碳水/脂肪</th></tr></table>
+  <p><b id="totalLine"></b></p>
+  <p class="muted" id="noteLine"></p>
+  <p><button onclick="logMeal()">记入今日</button></p>
+</div>
+<div class="card">
+  <h3>今日记录</h3>
+  <label>每日目标（kcal）：<input type="number" id="target" value="2000" style="width:90px" onchange="saveTarget()"></label>
+  <table id="logTable"><tr><th>时间</th><th>内容</th><th>热量</th><th></th></tr></table>
+  <p><b id="dayTotal"></b></p>
+</div>
+<script>
+let lastResult = null;
+const $ = id => document.getElementById(id);
+
+function checkHealth() {
+  $('status').innerHTML = '<span class="muted">正在检查本地模型…</span>';
+  fetch('/api/health').then(r => r.json()).then(h => {
+    $('status').innerHTML = h.demo
+      ? '<span class="demo-badge">演示模式：未检测到本地模型，输出为示例数据。安装 Ollama 并拉取 gemma3（或 qwen2.5vl）后点"重新检查"。</span>'
+      : '<span class="ok-badge">本地模型已连接：' + h.model + '</span>';
+  }).catch(() => { $('status').innerHTML = '<span class="muted">检查失败，请确认服务运行中。</span>'; });
+}
+checkHealth();
+
+$('photo').onchange = e => {
+  const f = e.target.files[0];
+  if (f) { const img = $('preview'); img.src = URL.createObjectURL(f); img.style.display = 'block'; }
+};
+
+async function estimate() {
+  const btn = $('go'); btn.disabled = true; btn.textContent = '估算中…';
+  const fd = new FormData();
+  const f = $('photo').files[0];
+  if (f) fd.append('file', f);
+  fd.append('description', $('desc').value);
+  try {
+    const r = await (await fetch('/api/estimate', {method: 'POST', body: fd})).json();
+    if (r.error) { alert(r.error); return; }
+    lastResult = r;
+    renderResult(r);
+  } finally { btn.disabled = false; btn.textContent = '估算这顿'; }
+}
+
+function renderResult(r) {
+  $('resultCard').style.display = 'block';
+  $('modeBadge').innerHTML = r.demo
+    ? '<span class="demo-badge">演示数据</span>' : '<span class="ok-badge">本地模型估算</span>';
+  const t = $('dishTable');
+  t.innerHTML = '<tr><th>菜品</th><th>份量</th><th>热量</th><th>蛋白/碳水/脂肪</th></tr>';
+  (r.dishes || []).forEach(d => {
+    t.innerHTML += `<tr><td>${d.name}</td><td>${d.portion||''}</td><td>${d.calories} kcal</td>` +
+      `<td>${d.protein_g}/${d.carbs_g}/${d.fat_g} g</td></tr>`;
+  });
+  const tot = r.total || {};
+  $('totalLine').textContent = `合计：${tot.calories} kcal，蛋白 ${tot.protein_g}g / 碳水 ${tot.carbs_g}g / 脂肪 ${tot.fat_g}g`;
+  $('noteLine').textContent = r.note || '';
+  $('resultCard').scrollIntoView({behavior: 'smooth'});
+}
+
+// ---- daily log (localStorage, stays on device) ----
+function getLog() { return JSON.parse(localStorage.getItem('canteen_log') || '{}'); }
+function saveLog(l) { localStorage.setItem('canteen_log', JSON.stringify(l)); }
+function today() { return new Date().toISOString().slice(0, 10); }
+function saveTarget() { localStorage.setItem('canteen_target', $('target').value); renderLog(); }
+
+function logMeal() {
+  if (!lastResult) return;
+  const l = getLog(), d = today();
+  l[d] = l[d] || [];
+  const names = (lastResult.dishes || []).map(x => x.name).join('、');
+  l[d].push({time: new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'}),
+             text: names || '一餐', kcal: Math.round(lastResult.total?.calories || 0)});
+  saveLog(l); renderLog();
+}
+function delMeal(i) {
+  const l = getLog(), d = today();
+  l[d].splice(i, 1); saveLog(l); renderLog();
+}
+function renderLog() {
+  $('target').value = localStorage.getItem('canteen_target') || 2000;
+  const items = getLog()[today()] || [];
+  const t = $('logTable');
+  t.innerHTML = '<tr><th>时间</th><th>内容</th><th>热量</th><th></th></tr>';
+  let sum = 0;
+  items.forEach((m, i) => {
+    sum += m.kcal;
+    t.innerHTML += `<tr><td>${m.time}</td><td>${m.text}</td><td>${m.kcal}</td>` +
+      `<td><button onclick="delMeal(${i})" style="padding:2px 8px">删</button></td></tr>`;
+  });
+  const target = +($('target').value || 2000);
+  $('dayTotal').textContent = `今日已摄入 ${sum} / ${target} kcal，还剩 ${target - sum} kcal`;
+}
+renderLog();
+</script>
+</body>
+</html>
